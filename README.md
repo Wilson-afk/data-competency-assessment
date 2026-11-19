@@ -59,7 +59,7 @@ is needed.
 Generated datasets, outputs, logs and the Python environment
 are excluded from version control.
 
-## Task 1 — Data extraction
+## Task 1 - Data extraction
 
 ### 1.1 Finding the API
 
@@ -105,9 +105,9 @@ The source contains **14 fields**:
 
 The main fields used were:
 
-- `ObjectId` — unique identifier for each record.
-- `C3_Complaint_Type` — recorded complaint type.
-- `Suburb` — suburb associated with the request.
+- `ObjectId` - unique identifier for each record.
+- `C3_Complaint_Type` - recorded complaint type.
+- `Suburb` - suburb associated with the request.
 
 The full metadata is saved to `outputs/table_schema.json`.
 
@@ -156,7 +156,7 @@ Extraction details are saved to:
 
 `outputs/extraction_summary.json`
 
-## Task 2 — Initial data transformation
+## Task 2 - Initial data transformation
 
 ### 2.1 Examining the suburb field
 

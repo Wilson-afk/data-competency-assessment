@@ -183,9 +183,11 @@ The following rules were applied:
 For example, ` philippi ` and `Philippi` are both
 standardised to `PHILIPPI`.
 
-Values such as `#`, `UNKNOWN`, `GENERIC TOWN 0000`,
-`N/A`, `NA`, `NULL`, `NONE` and `UNSPECIFIED` were
-treated as placeholders.
+Missing-value indicators such as `N/A`, `NA`, `NULL`
+and `NONE`, along with entries such as `UNKNOWN`,
+`UNSPECIFIED`, `#` and `GENERIC TOWN 0000`, were
+grouped under `UNKNOWN` because they do not identify
+a specific suburb.
 
 ### 2.3 Missing and unknown suburb values
 

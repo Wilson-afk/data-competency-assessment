@@ -55,10 +55,11 @@ def format_time(seconds):
 
 
 def show_progress(completed, total, elapsed):
-    """Show download progress and estimated remaining time."""
+    """Update the download progress on one terminal line."""
+    import sys
+
     progress = completed / total if total else 1
     filled = int(25 * progress)
-
     bar = "#" * filled + "-" * (25 - filled)
 
     remaining = (
@@ -66,14 +67,20 @@ def show_progress(completed, total, elapsed):
         if completed else 0
     )
 
-    print(
-        f"\\r\\033[2KDownloading: [{bar}] {progress:.0%} "
-        f"| {completed:,} / {total:,} records "
+    message = (
+        f"Downloading: [{bar}] {progress:.0%} "
+        f"| {completed:,}/{total:,} records "
         f"| Elapsed: {format_time(elapsed)} "
-        f"| Remaining: ~{format_time(remaining)}",
-        end="",
-        flush=True,
+        f"| Remaining: ~{format_time(remaining)}"
     )
+
+    if sys.stdout.isatty():
+        # Redraw the same line instead of printing new lines.
+        sys.stdout.write("\r" + message.ljust(115))
+        sys.stdout.flush()
+    elif completed == total:
+        # In captured output, show only the final result.
+        print(message, flush=True)
 
 
 def setup_logging():
@@ -325,7 +332,6 @@ def main():
             if len(record_ids) != api_count:
                 raise ValueError("API count and ObjectIds differ")
 
-            logging.info("Found %d service requests classified as No Power.", api_count)
 
             total_batches = (
                 len(record_ids) + BATCH_SIZE - 1

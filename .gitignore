@@ -5,3 +5,12 @@ __pycache__/
 
 data/raw/*
 !data/raw/.gitkeep
+
+# Generated data and artefacts
+data/processed/
+outputs/
+logs/
+*.part
+
+# Local environments
+.myenv/

@@ -70,8 +70,6 @@ The ArcGIS content search API was used to identify the
 dataset item. Its metadata was then examined to find the
 Feature Service REST endpoint.
 
-- ArcGIS item ID: `90711027d33940b5a06e96ad8a8f7ede`
-- Source: Feature Service, non-spatial table 0
 
 REST endpoint:
 

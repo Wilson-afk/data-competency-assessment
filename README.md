@@ -133,13 +133,10 @@ The extraction script:
 1. Checks the API schema and record limit.
 2. Requests the total number of matching records.
 3. Retrieves their ObjectIds.
-4. Downloads records in batches of up to 1,000.
+4. Downloads matching records in batches, following the API's record limits.
 5. Checks the IDs and complaint type returned in each batch.
 6. Compares the downloaded total with the API totals.
 7. Saves the raw records to a CSV file.
-
-The API reported a maximum of 1,000 records per request.
-The matching records were retrieved in **585 batches**.
 
 Requests include timeouts, retries and back-off for temporary
 network or server errors. Unexpected API responses or record

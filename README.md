@@ -184,6 +184,14 @@ and `NONE`, along with entries such as `UNKNOWN`,
 grouped under `UNKNOWN` because they do not identify
 a specific suburb.
 
+Digit-only and symbol-only entries were also grouped
+under `UNKNOWN`. These included values such as `0`, `00`,
+`000`, `33`, `0833666382` and `.`.
+
+The cleaning checks for values consisting entirely of digits
+or entirely of symbols. Suburb names containing both letters
+and numbers are not automatically classified as unknown.
+
 ### 2.3 Missing and unknown suburb values
 
 The cleaning identified:

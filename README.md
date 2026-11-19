@@ -176,7 +176,7 @@ The following rules were applied:
 | Leading or trailing whitespace | Removed |
 | Repeated internal spaces | Replaced with one space |
 | Inconsistent capitalisation | Converted to uppercase |
-| Missing or blank suburb | Grouped as `MISSING SUBURB` |
+| Missing or blank suburb | Grouped as `UNKNOWN` |
 | Recognised placeholder | Grouped as `UNKNOWN` |
 | Possible spelling variation | Retained unless verified |
 
@@ -187,7 +187,7 @@ Values such as `#`, `UNKNOWN`, `GENERIC TOWN 0000`,
 `N/A`, `NA`, `NULL`, `NONE` and `UNSPECIFIED` were
 treated as placeholders.
 
-### 2.3 Missing and placeholder suburbs
+### 2.3 Missing and unknown suburb values
 
 The cleaning identified:
 
@@ -198,17 +198,17 @@ The cleaning identified:
 | Unknown or placeholder suburb values | 25,962 |
 | **Total No Power records** | **584,665** |
 
-Instead of discarding records with unusable suburb values,
-two separate groups were added to the aggregation:
+All 27,534 records without an identifiable suburb were
+included in the final aggregation under one category:
+`UNKNOWN`.
 
-- `MISSING SUBURB`
-- `UNKNOWN`
+This includes missing, blank, unspecified and placeholder
+values. The original values and their data-quality reasons
+remain available in `outputs/unresolved_suburbs.csv`.
 
-These are not geographical suburbs. They allow all records
-to remain represented in the final counts.
-
-The original values and reasons for unresolved entries
-are saved to `outputs/unresolved_suburbs.csv`.
+The `UNKNOWN` category does not represent a geographical
+suburb. It ensures that every downloaded service-request
+record is included in the final counts.
 
 ### 2.4 Spelling variations
 
@@ -226,7 +226,7 @@ standardisation rather than fuzzy matching.
 ### 2.5 Aggregation
 
 Records were grouped by the cleaned suburb label, including
-the two categories for missing and placeholder values.
+the `UNKNOWN` category.
 
 The number of records in each group was calculated and
 sorted in descending order.
@@ -265,19 +265,19 @@ The analysis was completed on **19 November 2026**.
 
 | Measure | Result |
 |---|---:|
-| Records in the published source table | 5,372,466 |
+| Records in the source table | 5,372,466 |
 | Records matching the No Power filter | 584,665 |
 | Records with usable suburb names | 557,131 |
 | Missing or blank suburb values | 1,572 |
 | Unknown or placeholder suburb values | 25,962 |
 | **Total records included in aggregation** | **584,665** |
-| Distinct suburb groups | 5,855 |
+| Distinct suburb groups | 5,854 |
 | Validation | **PASSED** |
 
 All **584,665** downloaded records were included in the
 final suburb counts. The **27,534** records with
 missing or placeholder suburb values were retained under
-the two unresolved categories.
+the `UNKNOWN` category.
 
 The pipeline was also tested successfully from a fresh
 GitHub clone, including automatic environment setup,
@@ -299,23 +299,3 @@ API extraction, cleaning and validation.
 
 Generated data and output files are not committed to Git.
 They can be reproduced by running the pipeline.
-
-## Limitations
-
-The published source dataset is marked as deprecated.
-
-The extraction checks record identifiers and API counts,
-but does not provide a transactional snapshot if the source
-changes during downloading.
-
-Suburb spelling variations have not been merged without
-geographical verification. The output represents cleaned
-suburb labels, not a fully validated geographical list.
-
-The counts describe recorded service requests, not
-necessarily separate electricity outages. Multiple
-requests may refer to the same underlying outage.
-
-When the raw dataset is reused, the pipeline does not check
-the API for newer records. Removing
-`data/raw/no_power_raw.csv` triggers a new extraction.

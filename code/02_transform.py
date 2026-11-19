@@ -18,7 +18,6 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 RAW_FILE = PROJECT_DIR / "data/raw/no_power_raw.csv"
 CLEAN_FILE = PROJECT_DIR / "data/processed/no_power_clean.csv"
 RESULT_FILE = PROJECT_DIR / "outputs/no_power_by_suburb.csv"
-UNRESOLVED_FILE = PROJECT_DIR / "outputs/unresolved_suburbs.csv"
 SUMMARY_FILE = PROJECT_DIR / "outputs/transformation_summary.json"
 LOG_FILE = PROJECT_DIR / "logs/transformation.log"
 
@@ -205,9 +204,6 @@ def main():
         cleaned.to_csv(CLEAN_FILE, index=False)
         counts.to_csv(RESULT_FILE, index=False)
 
-        unresolved[
-            ["ObjectId", "Suburb_original", "suburb_issue"]
-        ].to_csv(UNRESOLVED_FILE, index=False)
 
         summary = {
             "status": "PASSED",

@@ -209,7 +209,7 @@ included in the final aggregation under one category:
 
 This includes missing, blank, unspecified and placeholder
 values. The original values and their data-quality reasons
-remain available in `outputs/unresolved_suburbs.csv`.
+remain available in `data/processed/no_power_clean.csv`.
 
 The `UNKNOWN` category does not represent a geographical
 suburb. It ensures that every downloaded service-request
@@ -290,7 +290,7 @@ API extraction, cleaning and validation.
 | `data/raw/no_power_raw.csv` | Downloaded API records |
 | `data/processed/no_power_clean.csv` | Cleaned dataset |
 | `outputs/no_power_by_suburb.csv` | Final suburb counts |
-| `outputs/unresolved_suburbs.csv` | Unresolved suburb records |
+| `data/processed/no_power_clean.csv` | Unresolved suburb records |
 | `outputs/extraction_summary.json` | Extraction counts and settings |
 | `outputs/transformation_summary.json` | Cleaning and aggregation summary |
 | `outputs/validation_report.json` | Validation results |

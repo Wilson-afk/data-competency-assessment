@@ -81,10 +81,10 @@ def validate_data():
         OUTPUT_DIR / "no_power_by_suburb.csv"
     )
 
-    unresolved = pd.read_csv(
-        OUTPUT_DIR / "unresolved_suburbs.csv",
-        dtype={"ObjectId": "string"},
-    )
+    unresolved = cleaned.loc[
+        cleaned["suburb_issue"].notna(),
+        ["ObjectId", "Suburb_original", "suburb_issue"],
+    ].copy()
 
     extraction = json.loads(
         (OUTPUT_DIR / "extraction_summary.json").read_text()

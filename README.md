@@ -80,3 +80,176 @@ Using the extracted data, produce a count of the 'No Power' reports by suburb.
 * Aggregate the number of reports for each suburb and write the result to a CSV file (one row per suburb, with the suburb name and the report count), sorted by count in descending order.
 * Examine the suburb field for data quality problems (for example missing or blank values, inconsistent capitalisation, stray whitespace, or spelling variants of the same suburb) and decide how to handle them. Document the decisions you made and why.
 * Validate your result. At a minimum, check that the sum of the suburb counts reconciles to the total number of records extracted (accounting for any records with no suburb), and compare your total against the record count the API reports for the same filter.
+---
+
+# Implementation and Reproducibility
+
+## Overview
+
+This solution extracts and analyses City of Cape Town C3 service
+requests classified as "No Power".
+
+The pipeline performs three sequential stages:
+
+1. Extract matching records from the ArcGIS REST API.
+2. Clean suburb values and aggregate report counts.
+3. Independently validate the extracted and aggregated data.
+
+## Requirements
+
+- Python 3.12
+- Bash
+- Internet connection
+- Python packages listed in requirements.txt
+
+## Installation
+
+Clone the candidate repository:
+
+    git clone https://github.com/Wilson-afk/data-competency-assessment.git
+    cd data-competency-assessment
+
+Create and activate the Python environment:
+
+    python3.12 -m venv .venv
+    source .venv/bin/activate
+
+Install dependencies:
+
+    python -m pip install -r requirements.txt
+
+## Execution
+
+Run the entire pipeline:
+
+    ./run_all.sh
+
+This command executes:
+
+1. code/01_extract.py
+2. code/02_transform.py
+3. code/03_validate.py
+
+Each stage must complete successfully before the next begins.
+The pipeline stops if a script fails.
+
+## API Discovery
+
+The source dataset was located through the City of Cape Town
+Open Data Portal.
+
+The ArcGIS item was identified using the public ArcGIS
+content search API.
+
+ArcGIS item ID:
+
+90711027d33940b5a06e96ad8a8f7ede
+
+The Feature Service contains one non-spatial table (ID 0).
+
+Service endpoint:
+
+https://services6.arcgis.com/nyYfO9SxHU2ChQd9/arcgis/rest/services/Service_Requests_2023_until_20_May_2026/FeatureServer/0
+
+The extraction uses the following server-side filter:
+
+    C3_Complaint_Type = 'No Power'
+
+The relevant fields are ObjectId, C3_Complaint_Type and Suburb.
+
+## Extraction Method
+
+The script first verifies the API schema and retrieves the
+API-reported count of matching records.
+
+It then retrieves the matching ObjectIds and processes them
+sequentially in batches of up to 1,000 records.
+
+Each batch is checked for missing, duplicate or unexpected IDs.
+
+HTTP requests include timeouts, retries and back-off.
+
+The extracted records are written to data/raw/no_power_raw.csv.
+
+The API count, ObjectId count and extracted count are reconciled.
+
+## Data Cleaning
+
+Original suburb values are retained for traceability.
+
+Cleaning includes:
+
+- Removing leading and trailing whitespace.
+- Standardising capitalisation to uppercase.
+- Collapsing repeated internal whitespace.
+- Identifying missing and blank suburb values.
+- Identifying recognised placeholder values.
+
+Placeholder examples include #, UNKNOWN and GENERIC TOWN 0000.
+
+Unresolved values are excluded from suburb-level aggregation
+and recorded separately with their original values and reasons.
+
+Potential spelling variants were identified during the audit,
+including PHILIPPI/PHILLIPI and GUGULETU/GUGULETHU.
+
+These were not automatically merged, because similar-looking
+names may require geographical verification.
+
+Consequently, the output represents distinct cleaned suburb
+labels rather than a fully validated geographical gazetteer.
+
+## Validation
+
+The pipeline verifies:
+
+- ObjectIds are present and unique.
+- All extracted complaints are classified as No Power.
+- API, extracted and cleaned record totals reconcile.
+- Raw and cleaned ObjectId sets match.
+- Unresolved records match the exclusion report.
+- Independent aggregation matches the final CSV.
+- Aggregated plus excluded records equal the extracted total.
+
+## Generated Outputs
+
+- data/raw/no_power_raw.csv
+- data/processed/no_power_clean.csv
+- outputs/no_power_by_suburb.csv
+- outputs/excluded_suburbs.csv
+- outputs/extraction_summary.json
+- outputs/transformation_summary.json
+- outputs/validation_report.json
+- outputs/table_schema.json
+- logs/extraction.log
+- logs/transformation.log
+- logs/validation.log
+
+Generated datasets, logs and local Python environments are
+excluded from version control.
+
+## Recorded Results
+
+Execution on 19 November 2026 produced:
+
+- API records: 584,665
+- Extracted records: 584,665
+- Aggregated records: 557,131
+- Unresolved records: 27,534
+- Distinct retained suburb labels: 5,853
+- Validation status: PASSED
+
+The totals are generated by the scripts, not hardcoded.
+
+## Limitations
+
+The source is a deprecated ArcGIS dataset.
+
+The extraction uses a retrieved ObjectId list but does not
+provide a transactional snapshot if source records change.
+
+Suburb-name standardisation is deliberately conservative.
+No unverified geographical or fuzzy spelling merges are applied.
+
+The pipeline requires an installed Python environment and
+internet connectivity for full execution.

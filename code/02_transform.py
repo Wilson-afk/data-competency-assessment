@@ -24,6 +24,14 @@ LOG_FILE = PROJECT_DIR / "logs/transformation.log"
 
 UNKNOWN_LABEL = "UNKNOWN"
 
+# Confirmed spelling and spacing corrections.
+SUBURB_CORRECTIONS = {
+    "PHILLIPI": "PHILIPPI",
+    "GUGULETHU": "GUGULETU",
+    "FISHHOEK": "FISH HOEK",
+}
+
+
 # These values do not identify a usable suburb.
 PLACEHOLDER_VALUES = {
     "#",
@@ -101,10 +109,16 @@ def clean_suburbs(records):
         .str.strip()
         .str.upper()
         .str.replace(r"\s+", " ", regex=True)
+        .replace(SUBURB_CORRECTIONS)
     )
 
     missing = records["Suburb_clean"].eq("")
-    placeholder = records["Suburb_clean"].isin(PLACEHOLDER_VALUES)
+    placeholder = (
+        records["Suburb_clean"].isin(PLACEHOLDER_VALUES)
+        | records["Suburb_clean"].str.fullmatch(
+            r"\d+|[^A-Z0-9\s]+", na=False
+        )
+    )
 
     records["suburb_issue"] = pd.NA
 

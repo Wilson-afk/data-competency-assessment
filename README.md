@@ -195,12 +195,12 @@ The cleaning identified:
 
 | Category | Number of records |
 |---|---:|
-| Records with usable suburb names | 557,131 |
+| Records with usable suburb names | 557,095 |
 | Missing or blank suburb values | 1,572 |
-| Unknown or placeholder suburb values | 25,962 |
+| Unknown or placeholder suburb values | 25,998 |
 | **Total No Power records** | **584,665** |
 
-All 27,534 records without an identifiable suburb were
+All 27,570 records without an identifiable suburb were
 included in the final aggregation under one category:
 `UNKNOWN`.
 
@@ -211,6 +211,8 @@ remain available in `outputs/unresolved_suburbs.csv`.
 The `UNKNOWN` category does not represent a geographical
 suburb. It ensures that every downloaded service-request
 record is included in the final counts.
+
+Numeric-only and symbol-only entries were also grouped under `UNKNOWN`. Confirmed spelling variations were standardised, including `PHILLIPI` to `PHILIPPI`, `GUGULETHU` to `GUGULETU`, and `FISHHOEK` to `FISH HOEK`.
 
 ### 2.4 Spelling variations
 
@@ -262,15 +264,15 @@ The analysis was completed on **19 November 2026**.
 |---|---:|
 | Records in the source table | 5,372,466 |
 | Records matching the No Power filter | 584,665 |
-| Records with usable suburb names | 557,131 |
+| Records with usable suburb names | 557,095 |
 | Missing or blank suburb values | 1,572 |
-| Unknown or placeholder suburb values | 25,962 |
+| Unknown or placeholder suburb values | 25,998 |
 | **Total records included in aggregation** | **584,665** |
-| Distinct suburb groups | 5,854 |
+| Distinct suburb groups | 5,843 |
 | Validation | **PASSED** |
 
 All **584,665** downloaded records were included in the
-final suburb counts. The **27,534** records with
+final suburb counts. The **27,570** records with
 missing or placeholder suburb values were retained under
 the `UNKNOWN` category.
 

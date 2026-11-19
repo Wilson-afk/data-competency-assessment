@@ -21,6 +21,14 @@ LOG_FILE = PROJECT_DIR / "logs/validation.log"
 
 UNKNOWN_LABEL = "UNKNOWN"
 
+# Confirmed spelling and spacing corrections.
+SUBURB_CORRECTIONS = {
+    "PHILLIPI": "PHILIPPI",
+    "GUGULETHU": "GUGULETU",
+    "FISHHOEK": "FISH HOEK",
+}
+
+
 PLACEHOLDER_VALUES = {
     "#",
     "UNKNOWN",
@@ -168,9 +176,14 @@ def validate_data():
     )
 
     missing = original_suburbs.eq("")
-    placeholder = original_suburbs.isin(PLACEHOLDER_VALUES)
+    placeholder = (
+        original_suburbs.isin(PLACEHOLDER_VALUES)
+        | original_suburbs.str.fullmatch(
+            r"\d+|[^A-Z0-9\s]+", na=False
+        )
+    )
 
-    expected_groups = original_suburbs.copy()
+    expected_groups = original_suburbs.replace(SUBURB_CORRECTIONS)
     expected_groups.loc[missing | placeholder] = UNKNOWN_LABEL
 
     # Compare labels by ObjectId, not by CSV row position.

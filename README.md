@@ -177,7 +177,7 @@ The following rules were applied:
 | Repeated internal spaces | Replaced with one space |
 | Inconsistent capitalisation | Converted to uppercase |
 | Missing or blank suburb | Grouped as `MISSING SUBURB` |
-| Recognised placeholder | Grouped as `UNKNOWN / PLACEHOLDER` |
+| Recognised placeholder | Grouped as `UNKNOWN` |
 | Possible spelling variation | Retained unless verified |
 
 For example, ` philippi ` and `Philippi` are both
@@ -202,7 +202,7 @@ Instead of discarding records with unusable suburb values,
 two separate groups were added to the aggregation:
 
 - `MISSING SUBURB`
-- `UNKNOWN / PLACEHOLDER`
+- `UNKNOWN`
 
 These are not geographical suburbs. They allow all records
 to remain represented in the final counts.

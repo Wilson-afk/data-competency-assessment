@@ -19,8 +19,7 @@ DATA_DIR = PROJECT_DIR / "data"
 OUTPUT_DIR = PROJECT_DIR / "outputs"
 LOG_FILE = PROJECT_DIR / "logs/validation.log"
 
-MISSING_LABEL = "MISSING SUBURB"
-UNKNOWN_LABEL = "UNKNOWN / PLACEHOLDER"
+UNKNOWN_LABEL = "UNKNOWN"
 
 PLACEHOLDER_VALUES = {
     "#",
@@ -172,8 +171,7 @@ def validate_data():
     placeholder = original_suburbs.isin(PLACEHOLDER_VALUES)
 
     expected_groups = original_suburbs.copy()
-    expected_groups.loc[missing] = MISSING_LABEL
-    expected_groups.loc[placeholder] = UNKNOWN_LABEL
+    expected_groups.loc[missing | placeholder] = UNKNOWN_LABEL
 
     # Compare labels by ObjectId, not by CSV row position.
     expected_by_id = pd.Series(
@@ -282,18 +280,13 @@ def validate_data():
         "Not all records were included in the final counts",
     )
 
-    missing_in_counts = counts.loc[
-        counts["suburb"].eq(MISSING_LABEL), "report_count"
-    ].sum()
-
     unknown_in_counts = counts.loc[
         counts["suburb"].eq(UNKNOWN_LABEL), "report_count"
     ].sum()
 
     check(
-        int(missing_in_counts) == missing_count
-        and int(unknown_in_counts) == unknown_count,
-        "Missing or unknown suburb totals do not match",
+        int(unknown_in_counts) == missing_count + unknown_count,
+        "Unknown suburb total does not match unresolved records",
     )
 
     logging.info(

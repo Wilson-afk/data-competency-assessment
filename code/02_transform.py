@@ -22,8 +22,7 @@ UNRESOLVED_FILE = PROJECT_DIR / "outputs/unresolved_suburbs.csv"
 SUMMARY_FILE = PROJECT_DIR / "outputs/transformation_summary.json"
 LOG_FILE = PROJECT_DIR / "logs/transformation.log"
 
-MISSING_LABEL = "MISSING SUBURB"
-UNKNOWN_LABEL = "UNKNOWN / PLACEHOLDER"
+UNKNOWN_LABEL = "UNKNOWN"
 
 # These values do not identify a usable suburb.
 PLACEHOLDER_VALUES = {
@@ -118,8 +117,10 @@ def clean_suburbs(records):
     # Use a separate column for the final aggregation.
     records["Suburb_group"] = records["Suburb_clean"]
 
-    records.loc[missing, "Suburb_group"] = MISSING_LABEL
-    records.loc[placeholder, "Suburb_group"] = UNKNOWN_LABEL
+    # Keep all unresolved suburb values in one reporting group.
+    records.loc[
+        missing | placeholder, "Suburb_group"
+    ] = UNKNOWN_LABEL
 
     return records
 

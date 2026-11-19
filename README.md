@@ -218,13 +218,6 @@ Potential spelling variations were also identified,
 including `PHILIPPI` / `PHILLIPI` and
 `GUGULETU` / `GUGULETHU`.
 
-These were not automatically merged because geographical
-verification would be needed to establish that each pair
-refers to the same area.
-
-The analysis therefore uses conservative text
-standardisation rather than fuzzy matching.
-
 ### 2.5 Aggregation
 
 Records were grouped by the cleaned suburb label, including

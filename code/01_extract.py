@@ -1,27 +1,23 @@
 #!/usr/bin/env python3
 """
-Step 1: Download No Power service requests.
+Download No Power service requests from the City of Cape Town.
 
-This script:
-1. Connects to the City of Cape Town ArcGIS API.
-2. Checks the available fields and API record limit.
-3. Retrieves the IDs of all No Power service requests.
-4. Downloads the matching records in batches of 1,000.
-5. Checks that the downloaded IDs and totals are correct.
-6. Saves the raw dataset and extraction summary.
-
-The script includes logging, retries and error handling.
+The records are retrieved from ArcGIS in batches. The script
+checks the downloaded IDs and saves the raw data for analysis.
 """
 
 import csv
 import json
 import logging
+import time
 from pathlib import Path
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+
+# Settings
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
@@ -34,6 +30,7 @@ API_URL = (
 
 QUERY_URL = f"{API_URL}/query"
 COMPLAINT_FILTER = "C3_Complaint_Type = 'No Power'"
+
 BATCH_SIZE = 1000
 
 RAW_FILE = PROJECT_DIR / "data/raw/no_power_raw.csv"
@@ -42,8 +39,45 @@ SCHEMA_FILE = PROJECT_DIR / "outputs/table_schema.json"
 LOG_FILE = PROJECT_DIR / "logs/extraction.log"
 
 
+# Helpers
+
+def format_time(seconds):
+    """Convert seconds into a readable time."""
+    seconds = int(seconds)
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+
+    if hours:
+        return f"{hours}h {minutes}m {seconds}s"
+    if minutes:
+        return f"{minutes}m {seconds}s"
+    return f"{seconds}s"
+
+
+def show_progress(completed, total, elapsed):
+    """Show download progress and estimated remaining time."""
+    progress = completed / total if total else 1
+    filled = int(25 * progress)
+
+    bar = "#" * filled + "-" * (25 - filled)
+
+    remaining = (
+        elapsed * (total - completed) / completed
+        if completed else 0
+    )
+
+    print(
+        f"\\r\\033[2KDownloading: [{bar}] {progress:.0%} "
+        f"| {completed:,} / {total:,} records "
+        f"| Elapsed: {format_time(elapsed)} "
+        f"| Remaining: ~{format_time(remaining)}",
+        end="",
+        flush=True,
+    )
+
+
 def setup_logging():
-    """Display progress in the terminal and save it to a log file."""
+    """Display messages and save them to a log file."""
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     logging.basicConfig(
@@ -57,8 +91,8 @@ def setup_logging():
 
 
 def create_session():
-    """Create an API connection that retries temporary failures."""
-    retry_settings = Retry(
+    """Create an API connection with automatic retries."""
+    retries = Retry(
         total=5,
         backoff_factor=1,
         status_forcelist=[429, 500, 502, 503, 504],
@@ -66,14 +100,15 @@ def create_session():
     )
 
     session = requests.Session()
-    adapter = HTTPAdapter(max_retries=retry_settings)
+    adapter = HTTPAdapter(max_retries=retries)
+
     session.mount("https://", adapter)
 
     return session
 
 
 def request_api(session, url, parameters, method="GET"):
-    """Send an API request and return its JSON response."""
+    """Send a request and return the API response."""
     if method == "POST":
         response = session.post(
             url, data=parameters, timeout=120
@@ -87,38 +122,51 @@ def request_api(session, url, parameters, method="GET"):
     data = response.json()
 
     if not isinstance(data, dict) or "error" in data:
-        raise ValueError(f"Unexpected ArcGIS response: {data}")
+        raise ValueError(f"ArcGIS API error: {data}")
 
     return data
 
 
-def get_schema(session):
-    """Check the required fields and obtain the CSV column names."""
+# API information
+
+def get_schema(session, batch_size):
+    """Check the available fields and maximum batch size."""
     metadata = request_api(session, API_URL, {"f": "json"})
 
-    fields = [field["name"] for field in metadata["fields"]]
+    columns = [field["name"] for field in metadata["fields"]]
 
     required = {"ObjectId", "Suburb", "C3_Complaint_Type"}
 
-    if not required.issubset(fields):
-        raise ValueError("Required fields are missing from the API")
+    if not required.issubset(columns):
+        raise ValueError("Required API fields are missing")
 
     if metadata.get("objectIdField") != "ObjectId":
         raise ValueError("Unexpected ObjectId field")
 
-    if BATCH_SIZE > metadata["maxRecordCount"]:
-        raise ValueError("Batch size exceeds the API record limit")
+    maximum = int(metadata["maxRecordCount"])
+
+    if batch_size > maximum:
+        raise ValueError(
+            f"Requested batch size {batch_size} exceeds "
+            f"the API limit of {maximum}"
+        )
 
     SCHEMA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SCHEMA_FILE.write_text(json.dumps(metadata, indent=2))
+    SCHEMA_FILE.write_text(
+        json.dumps(metadata, indent=2),
+        encoding="utf-8",
+    )
 
-    logging.info("Schema validated: %d fields", len(fields))
-    return fields
+    logging.info("The API contains %d fields.", len(columns))
+    logging.info("Maximum records per API request: %d", maximum)
+    logging.info("Downloading up to %d records per batch.", batch_size)
+
+    return columns
 
 
 def get_record_count(session):
-    """Ask the API how many 'No Power' records exist."""
-    data = request_api(
+    """Count the matching No Power records."""
+    result = request_api(
         session,
         QUERY_URL,
         {
@@ -128,12 +176,28 @@ def get_record_count(session):
         },
     )
 
-    return int(data["count"])
+    return int(result["count"])
+
+
+
+def get_total_record_count(session):
+    """Count all records in the source table before filtering."""
+    result = request_api(
+        session,
+        QUERY_URL,
+        {
+            "f": "json",
+            "where": "1=1",
+            "returnCountOnly": "true",
+        },
+    )
+
+    return int(result["count"])
 
 
 def get_record_ids(session):
-    """Retrieve and validate all matching ObjectIds."""
-    data = request_api(
+    """Retrieve all matching ObjectIds."""
+    result = request_api(
         session,
         QUERY_URL,
         {
@@ -143,36 +207,39 @@ def get_record_ids(session):
         },
     )
 
-    if data.get("objectIdFieldName") != "ObjectId":
+    if result.get("objectIdFieldName") != "ObjectId":
         raise ValueError("Unexpected ObjectId field in ID response")
 
-    record_ids = data["objectIds"]
+    record_ids = result["objectIds"]
 
     if len(record_ids) != len(set(record_ids)):
-        raise ValueError("Duplicate ObjectIds returned by the API")
+        raise ValueError("Duplicate ObjectIds returned")
 
-    logging.info("Retrieved %d unique ObjectIds", len(record_ids))
     return sorted(record_ids)
 
 
-def download_records(session, record_ids, columns):
-    """Download all records sequentially in batches of 1,000."""
+# Download records
+
+def download_records(session, record_ids, columns, batch_size):
+    """Download all records in batches and display progress."""
     RAW_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     temporary_file = RAW_FILE.with_suffix(".csv.part")
+
+    total = len(record_ids)
     downloaded = 0
-    total_batches = (len(record_ids) + BATCH_SIZE - 1) // BATCH_SIZE
+    start_time = time.perf_counter()
 
     with temporary_file.open(
         "w", newline="", encoding="utf-8"
-    ) as output:
-        writer = csv.DictWriter(output, fieldnames=columns)
+    ) as file:
+        writer = csv.DictWriter(file, fieldnames=columns)
         writer.writeheader()
 
-        for start in range(0, len(record_ids), BATCH_SIZE):
-            batch_ids = record_ids[start:start + BATCH_SIZE]
+        for start in range(0, total, batch_size):
+            batch_ids = record_ids[start:start + batch_size]
 
-            response = request_api(
+            result = request_api(
                 session,
                 QUERY_URL,
                 {
@@ -184,12 +251,12 @@ def download_records(session, record_ids, columns):
                 method="POST",
             )
 
-            if response.get("exceededTransferLimit"):
+            if result.get("exceededTransferLimit"):
                 raise ValueError("API transfer limit exceeded")
 
             records = [
                 feature["attributes"]
-                for feature in response["features"]
+                for feature in result["features"]
             ]
 
             returned_ids = [row["ObjectId"] for row in records]
@@ -198,77 +265,109 @@ def download_records(session, record_ids, columns):
                 len(returned_ids) != len(set(returned_ids))
                 or set(returned_ids) != set(batch_ids)
             ):
-                raise ValueError("Missing or unexpected IDs in batch")
+                raise ValueError(
+                    "Missing or unexpected ObjectIds in batch"
+                )
 
             if any(
                 row["C3_Complaint_Type"] != "No Power"
                 for row in records
             ):
-                raise ValueError("Unexpected complaint type in batch")
+                raise ValueError("Unexpected complaint type")
 
             writer.writerows(records)
             downloaded += len(records)
 
-            batch_number = start // BATCH_SIZE + 1
-            logging.info(
-                "Batch %d/%d | Downloaded: %d",
-                batch_number, total_batches, downloaded
-            )
+            elapsed = time.perf_counter() - start_time
+            show_progress(downloaded, total, elapsed)
 
-    if downloaded != len(record_ids):
-        raise ValueError("Downloaded record count does not match IDs")
+    print()  # Move to the next line after the progress bar.
 
-    # Replace the raw file only after successful extraction.
+    if downloaded != total:
+        raise ValueError("Downloaded count does not match IDs")
+
+    # Preserve the previous raw CSV until extraction succeeds.
     temporary_file.replace(RAW_FILE)
+
     return downloaded
 
 
+# Main pipeline
+
 def main():
-    """Run the complete data extraction and verify the final count."""
+    """Download, validate and save all matching records."""
     setup_logging()
-    logging.info("Starting ArcGIS data extraction")
+    started = time.perf_counter()
 
-    with create_session() as session:
-        try:
-            columns = get_schema(session)
+    logging.info("Connecting to the City of Cape Town ArcGIS API...")
 
+    try:
+        with create_session() as session:
+            columns = get_schema(session, BATCH_SIZE)
+
+            source_count = get_total_record_count(session)
             api_count = get_record_count(session)
             record_ids = get_record_ids(session)
 
-            if len(record_ids) != api_count:
-                raise ValueError("API count and ObjectIds do not match")
-
-            downloaded = download_records(
-                session, record_ids, columns
+            logging.info(
+                "Total records in the source table: %s",
+                f"{source_count:,}",
+            )
+            logging.info(
+                "Records classified as 'No Power': %s",
+                f"{api_count:,}",
+            )
+            logging.info(
+                "No Power share: %.2f%%",
+                api_count / source_count * 100 if source_count else 0,
             )
 
-            final_api_count = get_record_count(session)
+            if len(record_ids) != api_count:
+                raise ValueError("API count and ObjectIds differ")
 
-            if not (api_count == downloaded == final_api_count):
-                raise ValueError("Final API count reconciliation failed")
+            logging.info("Found %d service requests classified as No Power.", api_count)
+
+            total_batches = (
+                len(record_ids) + BATCH_SIZE - 1
+            ) // BATCH_SIZE
+
+            logging.info("The download will use %d batches.", total_batches)
+
+            downloaded = download_records(
+                session, record_ids, columns, BATCH_SIZE
+            )
+
+            final_count = get_record_count(session)
+
+            if not (api_count == downloaded == final_count):
+                raise ValueError("Final API counts do not reconcile")
+
+            elapsed = time.perf_counter() - started
 
             summary = {
                 "filter": COMPLAINT_FILTER,
+                "source_total_records": source_count,
                 "api_count_before": api_count,
                 "unique_object_ids": len(record_ids),
                 "extracted_records": downloaded,
-                "api_count_after": final_api_count,
+                "api_count_after": final_count,
                 "batch_size": BATCH_SIZE,
-                "batches": (
-                    len(record_ids) + BATCH_SIZE - 1
-                ) // BATCH_SIZE,
+                "batches": total_batches,
+                "extraction_seconds": round(elapsed, 2),
             }
 
             SUMMARY_FILE.write_text(
-                json.dumps(summary, indent=2)
+                json.dumps(summary, indent=2),
+                encoding="utf-8",
             )
 
-            logging.info("Extraction validation PASSED")
-            logging.info("Total records: %d", downloaded)
+            logging.info("The downloaded records match the API totals.")
+            logging.info("Successfully downloaded %d records.", downloaded)
+            logging.info("Time spent downloading and checking the data: %s", format_time(elapsed))
 
-        except Exception:
-            logging.exception("Extraction failed")
-            raise
+    except Exception:
+        logging.exception("Extraction failed")
+        raise
 
 
 if __name__ == "__main__":

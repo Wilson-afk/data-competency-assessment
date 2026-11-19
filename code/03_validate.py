@@ -1,19 +1,9 @@
 #!/usr/bin/env python3
 """
-Step 3: Validate the extracted and processed data.
+Check the downloaded records and final suburb counts.
 
-This script:
-1. Loads the extracted and processed datasets.
-2. Checks that required columns are present.
-3. Verifies that record identifiers are unique.
-4. Confirms that all records are No Power complaints.
-5. Compares extracted record counts with the API count.
-6. Checks that unresolved suburb records are documented.
-7. Independently calculates suburb counts again.
-8. Verifies that all record totals reconcile.
-9. Saves a validation report and logs the results.
-
-The pipeline stops if any validation check fails.
+Verifies record IDs, complaint types, missing suburb values
+and the final aggregation against the original dataset.
 """
 
 import json
@@ -23,20 +13,26 @@ from pathlib import Path
 import pandas as pd
 
 
-# --------------------------------------------------
-# 1. File paths
-# --------------------------------------------------
-
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 DATA_DIR = PROJECT_DIR / "data"
 OUTPUT_DIR = PROJECT_DIR / "outputs"
 LOG_FILE = PROJECT_DIR / "logs/validation.log"
 
+MISSING_LABEL = "MISSING SUBURB"
+UNKNOWN_LABEL = "UNKNOWN / PLACEHOLDER"
 
-# --------------------------------------------------
-# 2. Logging
-# --------------------------------------------------
+PLACEHOLDER_VALUES = {
+    "#",
+    "UNKNOWN",
+    "GENERIC TOWN 0000",
+    "N/A",
+    "NA",
+    "NULL",
+    "NONE",
+    "UNSPECIFIED",
+}
+
 
 def setup_logging():
     """Display validation messages and save them to a log file."""
@@ -52,28 +48,19 @@ def setup_logging():
     )
 
 
-# --------------------------------------------------
-# 3. Validation helper
-# --------------------------------------------------
-
 def check(condition, message):
-    """Stop execution if a validation check fails."""
+    """Stop if a validation check fails."""
     if not condition:
         raise ValueError(message)
 
 
-# --------------------------------------------------
-# 4. Load and validate data
-# --------------------------------------------------
-
 def validate_data():
-    """Check records, identifiers, exclusions and suburb counts."""
-
-    logging.info("Loading extracted and processed datasets")
+    """Check the downloaded data and independently verify the counts."""
+    logging.info("Loading the data and checking the results...")
 
     raw = pd.read_csv(
         DATA_DIR / "raw/no_power_raw.csv",
-        dtype={"ObjectId": "string"},
+        dtype={"ObjectId": "string", "Suburb": "string"},
         low_memory=False,
     )
 
@@ -87,149 +74,174 @@ def validate_data():
         OUTPUT_DIR / "no_power_by_suburb.csv"
     )
 
-    excluded = pd.read_csv(
-        OUTPUT_DIR / "excluded_suburbs.csv",
+    unresolved = pd.read_csv(
+        OUTPUT_DIR / "unresolved_suburbs.csv",
         dtype={"ObjectId": "string"},
     )
 
-    with (OUTPUT_DIR / "extraction_summary.json").open(
-        encoding="utf-8"
-    ) as file:
-        extraction = json.load(file)
+    extraction = json.loads(
+        (OUTPUT_DIR / "extraction_summary.json").read_text()
+    )
 
-    # --------------------------------------------------
-    # Check 1: Required columns
-    # --------------------------------------------------
-
-    required_raw = {
-        "ObjectId",
-        "C3_Complaint_Type",
-        "Suburb",
-    }
-
-    required_cleaned = {
-        "ObjectId",
-        "Suburb_clean",
-    }
-
+    # Check that the expected data fields are present.
     check(
-        required_raw.issubset(raw.columns),
-        "Missing required columns in raw data",
+        {"ObjectId", "Suburb", "C3_Complaint_Type"}.issubset(
+            raw.columns
+        ),
+        "Required raw-data columns are missing",
     )
 
     check(
-        required_cleaned.issubset(cleaned.columns),
-        "Missing required columns in cleaned data",
+        {
+            "ObjectId",
+            "Suburb_original",
+            "Suburb_clean",
+            "Suburb_group",
+            "suburb_issue",
+        }.issubset(cleaned.columns),
+        "Required cleaned-data columns are missing",
     )
 
     check(
-        set(counts.columns) == {"suburb", "report_count"},
-        "Incorrect columns in final aggregation",
+        list(counts.columns) == ["suburb", "report_count"],
+        "Unexpected columns in the suburb counts",
     )
 
     check(
-        {"ObjectId", "exclusion_reason"}.issubset(excluded.columns),
-        "Missing required columns in exclusion report",
+        {"ObjectId", "Suburb_original", "suburb_issue"}.issubset(
+            unresolved.columns
+        ),
+        "Required unresolved-data columns are missing",
     )
 
-    logging.info("PASSED: Required columns")
-
-    # --------------------------------------------------
-    # Check 2: Unique identifiers
-    # --------------------------------------------------
-
+    # Check unique IDs and the complaint filter.
     check(
-        raw["ObjectId"].notna().all(),
-        "Missing ObjectIds in raw data",
+        raw["ObjectId"].notna().all()
+        and raw["ObjectId"].is_unique,
+        "Missing or duplicate ObjectIds in raw data",
     )
 
     check(
-        raw["ObjectId"].is_unique,
-        "Duplicate ObjectIds in raw data",
+        cleaned["ObjectId"].notna().all()
+        and cleaned["ObjectId"].is_unique,
+        "Missing or duplicate ObjectIds in cleaned data",
     )
-
-    check(
-        cleaned["ObjectId"].notna().all(),
-        "Missing ObjectIds in cleaned data",
-    )
-
-    check(
-        cleaned["ObjectId"].is_unique,
-        "Duplicate ObjectIds in cleaned data",
-    )
-
-    logging.info("PASSED: ObjectId validation")
-
-    # --------------------------------------------------
-    # Check 3: Complaint type
-    # --------------------------------------------------
 
     check(
         raw["C3_Complaint_Type"].eq("No Power").all(),
-        "Raw data contains unexpected complaint types",
+        "Some records do not match the No Power filter",
     )
 
-    logging.info("PASSED: Complaint type validation")
+    check(
+        extraction["filter"] == "C3_Complaint_Type = 'No Power'",
+        "The extraction summary uses a different filter",
+    )
 
-    # --------------------------------------------------
-    # Check 4: API and extracted record counts
-    # --------------------------------------------------
-
-    expected = extraction["api_count_before"]
+    expected_total = extraction["api_count_before"]
 
     check(
         len(raw)
         == len(cleaned)
-        == expected
+        == expected_total
         == extraction["unique_object_ids"]
         == extraction["extracted_records"]
         == extraction["api_count_after"],
-        "API, raw and cleaned record counts do not reconcile",
+        "The API and downloaded record totals do not match",
     )
 
     check(
         set(raw["ObjectId"]) == set(cleaned["ObjectId"]),
-        "Raw and cleaned ObjectIds do not match",
+        "Raw and cleaned record IDs do not match",
     )
 
-    logging.info("PASSED: API and extracted count reconciliation")
+    logging.info(
+        "The %s downloaded records match the API totals.",
+        f"{len(raw):,}",
+    )
 
-    # --------------------------------------------------
-    # Check 5: Excluded records
-    # --------------------------------------------------
+    # Reconstruct suburb groups from the original raw values.
+    original_suburbs = (
+        raw["Suburb"]
+        .fillna("")
+        .str.strip()
+        .str.upper()
+        .str.replace(r"\s+", " ", regex=True)
+    )
 
-    unresolved = cleaned[
-        cleaned["Suburb_clean"].isna()
-    ]
+    missing = original_suburbs.eq("")
+    placeholder = original_suburbs.isin(PLACEHOLDER_VALUES)
+
+    expected_groups = original_suburbs.copy()
+    expected_groups.loc[missing] = MISSING_LABEL
+    expected_groups.loc[placeholder] = UNKNOWN_LABEL
+
+    # Compare labels by ObjectId, not by CSV row position.
+    expected_by_id = pd.Series(
+        expected_groups.to_numpy(),
+        index=raw["ObjectId"].to_numpy(),
+    )
+
+    actual_by_id = pd.Series(
+        cleaned["Suburb_group"].to_numpy(),
+        index=cleaned["ObjectId"].to_numpy(),
+    )
 
     check(
-        excluded["ObjectId"].notna().all(),
-        "Missing ObjectIds in exclusion report",
+        expected_by_id.sort_index().equals(
+            actual_by_id.sort_index()
+        ),
+        "Cleaned suburb groups do not match the raw data",
+    )
+
+    # Check the unresolved records and their reasons.
+    expected_issues = pd.Series(
+        pd.NA,
+        index=raw["ObjectId"].to_numpy(),
+        dtype="string",
+    )
+
+    expected_issues.loc[
+        raw.loc[missing, "ObjectId"].to_numpy()
+    ] = "missing_or_blank"
+
+    expected_issues.loc[
+        raw.loc[placeholder, "ObjectId"].to_numpy()
+    ] = "placeholder_or_unknown"
+
+    actual_issues = pd.Series(
+        cleaned["suburb_issue"].to_numpy(),
+        index=cleaned["ObjectId"].to_numpy(),
+        dtype="string",
     )
 
     check(
-        excluded["ObjectId"].is_unique,
-        "Duplicate ObjectIds in exclusion report",
+        expected_issues.sort_index().equals(
+            actual_issues.sort_index()
+        ),
+        "Suburb issue reasons do not match the raw data",
+    )
+
+    expected_unresolved_ids = set(
+        raw.loc[missing | placeholder, "ObjectId"]
     )
 
     check(
-        set(unresolved["ObjectId"]) == set(excluded["ObjectId"]),
-        "Excluded records do not match unresolved suburbs",
+        unresolved["ObjectId"].notna().all()
+        and unresolved["ObjectId"].is_unique,
+        "Missing or duplicate IDs in unresolved data",
     )
 
-    logging.info("PASSED: Excluded records validation")
+    check(
+        set(unresolved["ObjectId"]) == expected_unresolved_ids,
+        "The unresolved record list is incomplete",
+    )
 
-    # --------------------------------------------------
-    # Check 6: Independently calculate suburb counts
-    # --------------------------------------------------
-
+    # Independently calculate counts from the raw dataset.
     independent_counts = (
-        cleaned
-        .dropna(subset=["Suburb_clean"])
-        .groupby("Suburb_clean")
-        .size()
+        expected_groups
+        .value_counts()
+        .rename_axis("suburb")
         .reset_index(name="report_count")
-        .rename(columns={"Suburb_clean": "suburb"})
         .sort_values(
             ["report_count", "suburb"],
             ascending=[False, True],
@@ -243,70 +255,79 @@ def validate_data():
         check_dtype=False,
     )
 
-    logging.info("PASSED: Independent suburb aggregation")
-
-    # --------------------------------------------------
-    # Check 7: Final record reconciliation
-    # --------------------------------------------------
-
-    included = int(counts["report_count"].sum())
-    omitted = len(excluded)
-
-    check(
-        included + omitted == len(raw),
-        "Aggregated and excluded records do not reconcile",
+    logging.info(
+        "The suburb counts match a separate calculation."
     )
 
+    # Confirm all records are included in the final totals.
     check(
-        counts["suburb"].notna().all(),
-        "Final aggregation contains missing suburb values",
-    )
-
-    check(
-        counts["suburb"].is_unique,
-        "Final aggregation contains duplicate suburb labels",
+        counts["suburb"].notna().all()
+        and counts["suburb"].is_unique,
+        "Missing or duplicate suburb groups",
     )
 
     check(
         counts["report_count"].notna().all()
-        and (counts["report_count"] >= 0).all()
+        and (counts["report_count"] > 0).all()
         and (counts["report_count"] % 1 == 0).all(),
-        "Report counts must be non-negative integers",
+        "Invalid report counts",
     )
 
+    total_counted = int(counts["report_count"].sum())
+    missing_count = int(missing.sum())
+    unknown_count = int(placeholder.sum())
+
     check(
-        counts["report_count"].is_monotonic_decreasing,
-        "Suburb counts are not sorted in descending order",
+        total_counted == len(raw),
+        "Not all records were included in the final counts",
+    )
+
+    missing_in_counts = counts.loc[
+        counts["suburb"].eq(MISSING_LABEL), "report_count"
+    ].sum()
+
+    unknown_in_counts = counts.loc[
+        counts["suburb"].eq(UNKNOWN_LABEL), "report_count"
+    ].sum()
+
+    check(
+        int(missing_in_counts) == missing_count
+        and int(unknown_in_counts) == unknown_count,
+        "Missing or unknown suburb totals do not match",
     )
 
     logging.info(
-        "PASSED: Final reconciliation (%d + %d = %d)",
-        included,
-        omitted,
-        len(raw),
+        "Missing suburb records included: %s",
+        f"{missing_count:,}",
     )
 
-    # --------------------------------------------------
-    # Return validation summary
-    # --------------------------------------------------
+    logging.info(
+        "Placeholder suburb records included: %s",
+        f"{unknown_count:,}",
+    )
+
+    logging.info(
+        "All %s service requests are included in the counts.",
+        f"{total_counted:,}",
+    )
 
     return {
         "status": "PASSED",
-        "api_records": expected,
+        "api_records": expected_total,
         "raw_records": len(raw),
-        "aggregated_records": included,
-        "excluded_records": omitted,
-        "distinct_suburb_labels": len(counts),
+        "aggregated_records": total_counted,
+        "records_with_usable_suburbs": (
+            total_counted - missing_count - unknown_count
+        ),
+        "missing_suburb_records": missing_count,
+        "placeholder_suburb_records": unknown_count,
+        "unresolved_records": len(unresolved),
+        "distinct_suburb_groups": len(counts),
     }
 
 
-# --------------------------------------------------
-# 5. Run validation
-# --------------------------------------------------
-
 def main():
-    """Execute all validation checks and save the report."""
-
+    """Run the checks and save a validation report."""
     setup_logging()
 
     try:
@@ -319,8 +340,7 @@ def main():
             encoding="utf-8",
         )
 
-        logging.info("ALL VALIDATION CHECKS PASSED")
-        logging.info("Summary: %s", report)
+        logging.info("All validation checks passed.")
 
     except Exception:
         logging.exception("Validation failed")

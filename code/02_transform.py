@@ -1,18 +1,9 @@
 #!/usr/bin/env python3
 """
-Step 2: Clean suburb names and count reports.
+Clean suburb names and count No Power service requests.
 
-This script:
-1. Loads the previously downloaded No Power records.
-2. Checks the required columns and record identifiers.
-3. Standardises suburb names by removing extra spaces
-   and using consistent capitalisation.
-4. Identifies missing, blank and placeholder suburb values.
-5. Counts valid reports for each cleaned suburb.
-6. Saves the cleaned data, suburb counts and exclusions.
-7. Checks that all extracted records are accounted for.
-
-Original suburb values are preserved for traceability.
+Missing and placeholder suburb names are kept as separate
+categories so that every downloaded record is counted.
 """
 
 import json
@@ -27,12 +18,15 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 RAW_FILE = PROJECT_DIR / "data/raw/no_power_raw.csv"
 CLEAN_FILE = PROJECT_DIR / "data/processed/no_power_clean.csv"
 RESULT_FILE = PROJECT_DIR / "outputs/no_power_by_suburb.csv"
-EXCLUDED_FILE = PROJECT_DIR / "outputs/excluded_suburbs.csv"
+UNRESOLVED_FILE = PROJECT_DIR / "outputs/unresolved_suburbs.csv"
 SUMMARY_FILE = PROJECT_DIR / "outputs/transformation_summary.json"
 LOG_FILE = PROJECT_DIR / "logs/transformation.log"
 
-# Values that do not identify a usable suburb.
-INVALID_SUBURBS = {
+MISSING_LABEL = "MISSING SUBURB"
+UNKNOWN_LABEL = "UNKNOWN / PLACEHOLDER"
+
+# These values do not identify a usable suburb.
+PLACEHOLDER_VALUES = {
     "#",
     "UNKNOWN",
     "GENERIC TOWN 0000",
@@ -45,7 +39,7 @@ INVALID_SUBURBS = {
 
 
 def setup_logging():
-    """Display progress in the terminal and write a log file."""
+    """Show progress in the terminal and save a log file."""
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     logging.basicConfig(
@@ -59,11 +53,11 @@ def setup_logging():
 
 
 def load_data():
-    """Load the extracted records and validate their identifiers."""
+    """Load the No Power records and check their identifiers."""
     if not RAW_FILE.exists():
-        raise FileNotFoundError(f"Missing input file: {RAW_FILE}")
+        raise FileNotFoundError(f"Raw data not found: {RAW_FILE}")
 
-    data = pd.read_csv(
+    records = pd.read_csv(
         RAW_FILE,
         dtype={
             "ObjectId": "string",
@@ -75,67 +69,69 @@ def load_data():
 
     required = {"ObjectId", "Suburb", "C3_Complaint_Type"}
 
-    if not required.issubset(data.columns):
+    if not required.issubset(records.columns):
         raise ValueError("Required columns are missing")
 
-    if data["ObjectId"].isna().any():
-        raise ValueError("Missing ObjectIds")
+    if records["ObjectId"].isna().any():
+        raise ValueError("Some records have missing ObjectIds")
 
-    if data["ObjectId"].duplicated().any():
-        raise ValueError("Duplicate ObjectIds")
+    if not records["ObjectId"].is_unique:
+        raise ValueError("Duplicate ObjectIds found")
 
-    if not data["C3_Complaint_Type"].eq("No Power").all():
-        raise ValueError("Unexpected complaint types")
+    if not records["C3_Complaint_Type"].eq("No Power").all():
+        raise ValueError("Unexpected complaint types found")
 
-    logging.info("Loaded %d records", len(data))
-    return data
+    logging.info(
+        "Loaded %s service-request records classified as 'No Power'.",
+        f"{len(records):,}",
+    )
+
+    return records
 
 
-def clean_suburbs(data):
-    """Standardise suburb labels and identify unresolved values."""
-    data = data.copy()
+def clean_suburbs(records):
+    """Clean suburb names and identify missing or placeholder values."""
+    records = records.copy()
 
-    # Preserve the original suburb for traceability.
-    data["Suburb_original"] = data["Suburb"]
+    # Keep the original value so changes can be checked later.
+    records["Suburb_original"] = records["Suburb"]
 
-    data["Suburb_clean"] = (
-        data["Suburb"]
+    records["Suburb_clean"] = (
+        records["Suburb"]
         .fillna("")
         .str.strip()
         .str.upper()
         .str.replace(r"\s+", " ", regex=True)
     )
 
-    missing = data["Suburb_clean"].eq("")
-    placeholder = data["Suburb_clean"].isin(INVALID_SUBURBS)
+    missing = records["Suburb_clean"].eq("")
+    placeholder = records["Suburb_clean"].isin(PLACEHOLDER_VALUES)
 
-    data["exclusion_reason"] = pd.NA
+    records["suburb_issue"] = pd.NA
 
-    data.loc[missing, "exclusion_reason"] = "missing_or_blank"
-    data.loc[
-        placeholder & ~missing,
-        "exclusion_reason",
-    ] = "placeholder_or_unknown"
+    records.loc[missing, "suburb_issue"] = "missing_or_blank"
+    records.loc[placeholder, "suburb_issue"] = "placeholder_or_unknown"
 
-    # Excluded values remain traceable in Suburb_original.
-    data.loc[
-        data["exclusion_reason"].notna(),
-        "Suburb_clean",
-    ] = pd.NA
+    # Keep a clean suburb column for actual suburb names.
+    records.loc[missing | placeholder, "Suburb_clean"] = pd.NA
 
-    return data
+    # Use a separate column for the final aggregation.
+    records["Suburb_group"] = records["Suburb_clean"]
+
+    records.loc[missing, "Suburb_group"] = MISSING_LABEL
+    records.loc[placeholder, "Suburb_group"] = UNKNOWN_LABEL
+
+    return records
 
 
-def count_reports_by_suburb(data):
-    """Count valid reports per suburb, sorted highest to lowest."""
-    valid_records = data.dropna(subset=["Suburb_clean"])
-
+def count_reports_by_suburb(records):
+    """Count every service request using its suburb group."""
     counts = (
-        valid_records
-        .groupby("Suburb_clean")
+        records
+        .groupby("Suburb_group")
         .size()
         .reset_index(name="report_count")
-        .rename(columns={"Suburb_clean": "suburb"})
+        .rename(columns={"Suburb_group": "suburb"})
         .sort_values(
             ["report_count", "suburb"],
             ascending=[False, True],
@@ -147,27 +143,46 @@ def count_reports_by_suburb(data):
 
 
 def main():
-    """Clean suburb values, aggregate reports and save the results."""
+    """Clean the data, calculate suburb counts and save the results."""
     setup_logging()
 
     try:
-        data = load_data()
-        cleaned = clean_suburbs(data)
+        records = load_data()
 
-        excluded = cleaned[
-            cleaned["exclusion_reason"].notna()
-        ].copy()
+        logging.info(
+            "Cleaning suburb names and checking missing values..."
+        )
 
+        cleaned = clean_suburbs(records)
         counts = count_reports_by_suburb(cleaned)
 
-        included_total = int(counts["report_count"].sum())
-        excluded_total = len(excluded)
+        unresolved = cleaned[
+            cleaned["suburb_issue"].notna()
+        ].copy()
 
-        if included_total + excluded_total != len(data):
-            raise ValueError("Record totals do not reconcile")
+        missing_count = int(
+            unresolved["suburb_issue"]
+            .eq("missing_or_blank")
+            .sum()
+        )
 
-        if not counts["report_count"].is_monotonic_decreasing:
-            raise ValueError("Report counts are not sorted")
+        unknown_count = int(
+            unresolved["suburb_issue"]
+            .eq("placeholder_or_unknown")
+            .sum()
+        )
+
+        total_counted = int(counts["report_count"].sum())
+
+        if total_counted != len(records):
+            raise ValueError(
+                "The suburb counts do not include all records"
+            )
+
+        if counts["suburb"].isna().any():
+            raise ValueError(
+                "Missing suburb groups in the final counts"
+            )
 
         CLEAN_FILE.parent.mkdir(parents=True, exist_ok=True)
         RESULT_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -175,37 +190,50 @@ def main():
         cleaned.to_csv(CLEAN_FILE, index=False)
         counts.to_csv(RESULT_FILE, index=False)
 
-        excluded[
-            ["ObjectId", "Suburb_original", "exclusion_reason"]
-        ].to_csv(EXCLUDED_FILE, index=False)
+        unresolved[
+            ["ObjectId", "Suburb_original", "suburb_issue"]
+        ].to_csv(UNRESOLVED_FILE, index=False)
 
         summary = {
             "status": "PASSED",
-            "total_records": len(data),
-            "aggregated_records": included_total,
-            "excluded_records": excluded_total,
-            "distinct_suburbs": len(counts),
-            "exclusions_by_reason": {
-                str(reason): int(number)
-                for reason, number in excluded[
-                    "exclusion_reason"
-                ].value_counts().items()
-            },
+            "total_records": len(records),
+            "aggregated_records": total_counted,
+            "records_with_usable_suburbs": (
+                len(records) - len(unresolved)
+            ),
+            "unresolved_records": len(unresolved),
+            "missing_suburb_records": missing_count,
+            "placeholder_suburb_records": unknown_count,
+            "distinct_suburb_groups": len(counts),
         }
 
         SUMMARY_FILE.write_text(
-            json.dumps(summary, indent=2)
+            json.dumps(summary, indent=2),
+            encoding="utf-8",
         )
 
         logging.info(
-            "Reconciliation PASSED: %d + %d = %d",
-            included_total, excluded_total, len(data)
+            "Records with usable suburb names: %s",
+            f"{len(records) - len(unresolved):,}",
+        )
+        logging.info(
+            "Missing suburb names: %s",
+            f"{missing_count:,}",
+        )
+        logging.info(
+            "Unknown or placeholder suburb names: %s",
+            f"{unknown_count:,}",
+        )
+        logging.info(
+            "All %s records are included in the suburb counts.",
+            f"{total_counted:,}",
+        )
+        logging.info(
+            "Suburb cleaning and aggregation completed."
         )
 
-        logging.info("Transformation validation PASSED")
-
     except Exception:
-        logging.exception("Transformation failed")
+        logging.exception("Suburb processing failed")
         raise
 
 
